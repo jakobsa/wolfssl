@@ -354,6 +354,39 @@ void wolfSSL_CTX_free(WOLFSSL_CTX* ctx)
 }
 
 
+#ifdef SINGLE_THREADED
+/* no locking in single threaded mode, allow a CTX level rng to be shared with
+ * WOLFSSL objects, SSL_SUCCESS on ok */
+int wolfSSL_CTX_new_rng(WOLFSSL_CTX* ctx)
+{
+    WC_RNG* rng;
+    int     ret;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    rng = XMALLOC(sizeof(WC_RNG), ctx->heap, DYNAMIC_TYPE_RNG);
+    if (rng == NULL) {
+        return MEMORY_E;
+    }
+
+#ifndef HAVE_FIPS
+    ret = wc_InitRng_ex(rng, ctx->heap);
+#else
+    ret = wc_InitRng(rng);
+#endif
+    if (ret != 0) {
+        XFREE(rng, ctx->heap, DYNAMIC_TYPE_RNG);
+        return ret;
+    }
+
+    ctx->rng = rng;
+    return SSL_SUCCESS;
+}
+#endif
+
+
 WOLFSSL* wolfSSL_new(WOLFSSL_CTX* ctx)
 {
     WOLFSSL* ssl = NULL;
@@ -2408,6 +2441,7 @@ int wolfSSL_CertPemToDer(const unsigned char* pem, int pemSz,
 
 #if defined(OPENSSL_EXTRA) || defined(HAVE_WEBSERVER)
 
+#ifndef NO_AES
 static const char *EVP_AES_128_CBC = "AES-128-CBC";
 static const char *EVP_AES_192_CBC = "AES-192-CBC";
 static const char *EVP_AES_256_CBC = "AES-256-CBC";
@@ -2417,6 +2451,7 @@ static const char *EVP_AES_256_CBC = "AES-256-CBC";
     static const char *EVP_AES_256_CTR = "AES-256-CTR";
 #endif
 static const int  EVP_AES_SIZE = 11;
+#endif
 
 #ifndef NO_DES3
 static const char *EVP_DES_CBC = "DES-CBC";
@@ -3155,6 +3190,8 @@ int AddCA(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int type, int verify)
             signer->pubKeySize     = cert->pubKeySize;
             signer->nameLen        = cert->subjectCNLen;
             signer->name           = cert->subjectCN;
+            signer->pathLength     = cert->pathLength;
+            signer->pathLengthSet  = cert->pathLengthSet;
         #ifndef IGNORE_NAME_CONSTRAINTS
             signer->permittedNames = cert->permittedNames;
             signer->excludedNames  = cert->excludedNames;
@@ -3331,6 +3368,9 @@ static int wolfssl_decrypt_buffer_key(DerBuffer* der, byte* password,
     byte  key[AES_256_KEY_SIZE];
 #endif
 
+    (void)passwordSz;
+    (void)key;
+
     WOLFSSL_ENTER("wolfssl_decrypt_buffer_key");
 
     if (der == NULL || password == NULL || info == NULL) {
@@ -3362,8 +3402,7 @@ static int wolfssl_decrypt_buffer_key(DerBuffer* der, byte* password,
 #endif
         return SSL_FATAL_ERROR;
     }
-#else
-    (void) passwordSz;
+
 #endif /* NO_MD5 */
 
 #ifndef NO_DES3
@@ -3412,6 +3451,10 @@ static int wolfssl_encrypt_buffer_key(byte* der, word32 derSz, byte* password,
     byte  key[AES_256_KEY_SIZE];
 #endif
 
+    (void)derSz;
+    (void)passwordSz;
+    (void)key;
+
     WOLFSSL_ENTER("wolfssl_encrypt_buffer_key");
 
     if (der == NULL || password == NULL || info == NULL || info->ivSz == 0) {
@@ -3437,27 +3480,29 @@ static int wolfssl_encrypt_buffer_key(byte* der, word32 derSz, byte* password,
 #endif
         return SSL_FATAL_ERROR;
     }
-#else
-    (void) passwordSz;
+
 #endif /* NO_MD5 */
 
+    if (ret > 0) {
+        ret = SSL_BAD_FILE; /* Reset error return */
 #ifndef NO_DES3
-    if (XSTRNCMP(info->name, EVP_DES_CBC, EVP_DES_SIZE) == 0)
-        ret = wc_Des_CbcEncryptWithKey(der, der, derSz, key, info->iv);
-    else if (XSTRNCMP(info->name, EVP_DES_EDE3_CBC, EVP_DES_EDE3_SIZE) == 0)
-        ret = wc_Des3_CbcEncryptWithKey(der, der, derSz, key, info->iv);
+        if (XSTRNCMP(info->name, EVP_DES_CBC, EVP_DES_SIZE) == 0)
+            ret = wc_Des_CbcEncryptWithKey(der, der, derSz, key, info->iv);
+        else if (XSTRNCMP(info->name, EVP_DES_EDE3_CBC, EVP_DES_EDE3_SIZE) == 0)
+            ret = wc_Des3_CbcEncryptWithKey(der, der, derSz, key, info->iv);
 #endif /* NO_DES3 */
 #ifndef NO_AES
-    if (XSTRNCMP(info->name, EVP_AES_128_CBC, EVP_AES_SIZE) == 0)
-        ret = wc_AesCbcEncryptWithKey(der, der, derSz,
-                                      key, AES_128_KEY_SIZE, info->iv);
-    else if (XSTRNCMP(info->name, EVP_AES_192_CBC, EVP_AES_SIZE) == 0)
-        ret = wc_AesCbcEncryptWithKey(der, der, derSz,
-                                      key, AES_192_KEY_SIZE, info->iv);
-    else if (XSTRNCMP(info->name, EVP_AES_256_CBC, EVP_AES_SIZE) == 0)
-        ret = wc_AesCbcEncryptWithKey(der, der, derSz,
-                                      key, AES_256_KEY_SIZE, info->iv);
+        if (XSTRNCMP(info->name, EVP_AES_128_CBC, EVP_AES_SIZE) == 0)
+            ret = wc_AesCbcEncryptWithKey(der, der, derSz,
+                                          key, AES_128_KEY_SIZE, info->iv);
+        else if (XSTRNCMP(info->name, EVP_AES_192_CBC, EVP_AES_SIZE) == 0)
+            ret = wc_AesCbcEncryptWithKey(der, der, derSz,
+                                          key, AES_192_KEY_SIZE, info->iv);
+        else if (XSTRNCMP(info->name, EVP_AES_256_CBC, EVP_AES_SIZE) == 0)
+            ret = wc_AesCbcEncryptWithKey(der, der, derSz,
+                                          key, AES_256_KEY_SIZE, info->iv);
 #endif /* NO_AES */
+    }
 
 #ifdef WOLFSSL_SMALL_STACK
     XFREE(key, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -9397,6 +9442,8 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
             return 0;
     #endif
 
+        (void)type;
+
         WOLFSSL_ENTER("wolfSSL_EVP_BytesToKey");
         wc_InitMd5(md5);
 
@@ -9415,6 +9462,7 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
         }
         else
         #endif /* NO_DES3 */
+        #ifndef NO_AES
         if (XSTRNCMP(type, EVP_AES_128_CBC, EVP_AES_SIZE) == 0) {
             keyLen = AES_128_KEY_SIZE;
             ivLen  = AES_IV_SIZE;
@@ -9427,7 +9475,9 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
             keyLen = AES_256_KEY_SIZE;
             ivLen  = AES_IV_SIZE;
         }
-        else {
+        else
+        #endif /* NO_AES */
+        {
         #ifdef WOLFSSL_SMALL_STACK
             XFREE(md5, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         #endif
@@ -9725,6 +9775,8 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
         /* do nothing */
     }
 
+    #ifndef NO_AES
+
     const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_aes_128_cbc(void)
     {
         WOLFSSL_ENTER("wolfSSL_EVP_aes_128_cbc");
@@ -9766,6 +9818,7 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
         return EVP_AES_256_CTR;
     }
 
+    #endif /* NO_AES */
 
 #ifndef NO_DES3
     const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_des_cbc(void)
@@ -9844,6 +9897,7 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
     {
         int ret = -1;  /* failure local, during function 0 means success
                           because internal functions work that way */
+        (void)key;
         (void)iv;
         (void)enc;
 

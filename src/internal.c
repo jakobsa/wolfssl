@@ -1449,6 +1449,13 @@ void SSL_CtxResourceFree(WOLFSSL_CTX* ctx)
     XFREE(ctx->serverDH_P.buffer, ctx->heap, DYNAMIC_TYPE_DH);
 #endif
 
+#ifdef SINGLE_THREADED
+    if (ctx->rng) {
+        wc_FreeRng(ctx->rng);
+        XFREE(ctx->rng, ctx->heap, DYNAMIC_TYPE_RNG);
+    }
+#endif
+
 #ifndef NO_CERTS
     FreeDer(&ctx->privateKey);
     FreeDer(&ctx->certificate);
@@ -3475,25 +3482,32 @@ int InitSSL(WOLFSSL* ssl, WOLFSSL_CTX* ctx)
     }
 #endif
 
-    /* RNG */
-    ssl->rng = (WC_RNG*)XMALLOC(sizeof(WC_RNG), ssl->heap, DYNAMIC_TYPE_RNG);
-    if (ssl->rng == NULL) {
-        WOLFSSL_MSG("RNG Memory error");
-        return MEMORY_E;
-    }
-
-    /* FIPS RNG API does not accept a heap hint */
-#ifndef HAVE_FIPS
-    if ( (ret = wc_InitRng_ex(ssl->rng, ssl->heap)) != 0) {
-        WOLFSSL_MSG("RNG Init error");
-        return ret;
-    }
-#else
-    if ( (ret = wc_InitRng(ssl->rng)) != 0) {
-        WOLFSSL_MSG("RNG Init error");
-        return ret;
-    }
+#ifdef SINGLE_THREADED
+    ssl->rng = ctx->rng;   /* CTX may have one, if so use it */
 #endif
+
+    if (ssl->rng == NULL) {
+        /* RNG */
+        ssl->rng = (WC_RNG*)XMALLOC(sizeof(WC_RNG), ssl->heap,DYNAMIC_TYPE_RNG);
+        if (ssl->rng == NULL) {
+            WOLFSSL_MSG("RNG Memory error");
+            return MEMORY_E;
+        }
+        ssl->options.weOwnRng = 1;
+
+        /* FIPS RNG API does not accept a heap hint */
+#ifndef HAVE_FIPS
+        if ( (ret = wc_InitRng_ex(ssl->rng, ssl->heap)) != 0) {
+            WOLFSSL_MSG("RNG Init error");
+            return ret;
+        }
+#else
+        if ( (ret = wc_InitRng(ssl->rng)) != 0) {
+            WOLFSSL_MSG("RNG Init error");
+            return ret;
+        }
+#endif
+    }
 
 #if defined(WOLFSSL_DTLS) && !defined(NO_WOLFSSL_SERVER)
     if (ssl->options.dtls && ssl->options.side == WOLFSSL_SERVER_END) {
@@ -3591,8 +3605,10 @@ void SSL_ResourceFree(WOLFSSL* ssl)
     FreeCiphers(ssl);
     FreeArrays(ssl, 0);
     FreeKeyExchange(ssl);
-    wc_FreeRng(ssl->rng);
-    XFREE(ssl->rng, ssl->heap, DYNAMIC_TYPE_RNG);
+    if (ssl->options.weOwnRng) {
+        wc_FreeRng(ssl->rng);
+        XFREE(ssl->rng, ssl->heap, DYNAMIC_TYPE_RNG);
+    }
     XFREE(ssl->suites, ssl->heap, DYNAMIC_TYPE_SUITES);
     XFREE(ssl->hsHashes, ssl->heap, DYNAMIC_TYPE_HASHES);
     XFREE(ssl->buffers.domainName.buffer, ssl->heap, DYNAMIC_TYPE_DOMAIN);
@@ -3783,9 +3799,12 @@ void FreeHandshakeResources(WOLFSSL* ssl)
 
     /* RNG */
     if (ssl->specs.cipher_type == stream || ssl->options.tls1_1 == 0) {
-        wc_FreeRng(ssl->rng);
-        XFREE(ssl->rng, ssl->heap, DYNAMIC_TYPE_RNG);
-        ssl->rng = NULL;
+        if (ssl->options.weOwnRng) {
+            wc_FreeRng(ssl->rng);
+            XFREE(ssl->rng, ssl->heap, DYNAMIC_TYPE_RNG);
+            ssl->rng = NULL;
+            ssl->options.weOwnRng = 0;
+        }
     }
 
 #ifdef WOLFSSL_DTLS
@@ -6099,7 +6118,7 @@ int CopyDecodedToX509(WOLFSSL_X509* x509, DecodedCert* dCert)
 
     x509->basicConstSet = dCert->extBasicConstSet;
     x509->basicConstCrit = dCert->extBasicConstCrit;
-    x509->basicConstPlSet = dCert->extBasicConstPlSet;
+    x509->basicConstPlSet = dCert->pathLengthSet;
     x509->subjAltNameSet = dCert->extSubjAltNameSet;
     x509->subjAltNameCrit = dCert->extSubjAltNameCrit;
     x509->authKeyIdSet = dCert->extAuthKeyIdSet;
@@ -8557,7 +8576,7 @@ static INLINE int Decrypt(WOLFSSL* ssl, byte* plain, const byte* input,
 static int SanityCheckCipherText(WOLFSSL* ssl, word32 encryptSz)
 {
 #ifdef HAVE_TRUNCATED_HMAC
-    word32 minLength = ssl->truncated_hmac ? TRUNCATED_HMAC_SZ
+    word32 minLength = ssl->truncated_hmac ? (byte)TRUNCATED_HMAC_SZ
                                            : ssl->specs.hash_size;
 #else
     word32 minLength = ssl->specs.hash_size; /* covers stream */
@@ -9022,7 +9041,7 @@ static INLINE int VerifyMac(WOLFSSL* ssl, const byte* input, word32 msgSz,
     word32 pad     = 0;
     word32 padByte = 0;
 #ifdef HAVE_TRUNCATED_HMAC
-    word32 digestSz = ssl->truncated_hmac ? TRUNCATED_HMAC_SZ
+    word32 digestSz = ssl->truncated_hmac ? (byte)TRUNCATED_HMAC_SZ
                                           : ssl->specs.hash_size;
 #else
     word32 digestSz = ssl->specs.hash_size;
@@ -9800,13 +9819,8 @@ static int BuildCertHashes(WOLFSSL* ssl, Hashes* hashes)
 int BuildMessage(WOLFSSL* ssl, byte* output, int outSz, const byte* input,
                  int inSz, int type, int hashOutput, int sizeOnly)
 {
-#ifdef HAVE_TRUNCATED_HMAC
-    word32 digestSz = min(ssl->specs.hash_size,
-                ssl->truncated_hmac ? TRUNCATED_HMAC_SZ : ssl->specs.hash_size);
-#else
-    word32 digestSz = ssl->specs.hash_size;
-#endif
-    word32 sz = RECORD_HEADER_SZ + inSz + digestSz;
+    word32 digestSz;
+    word32 sz = RECORD_HEADER_SZ + inSz;
     word32 pad  = 0, i;
     word32 idx  = RECORD_HEADER_SZ;
     word32 ivSz = 0;      /* TLSv1.1  IV */
@@ -9830,6 +9844,12 @@ int BuildMessage(WOLFSSL* ssl, byte* output, int outSz, const byte* input,
         return BAD_FUNC_ARG;
     }
 
+    digestSz = ssl->specs.hash_size;
+#ifdef HAVE_TRUNCATED_HMAC
+    if (ssl->truncated_hmac)
+        digestSz = min(TRUNCATED_HMAC_SZ, digestSz);
+#endif
+    sz += digestSz;
 
 #ifdef WOLFSSL_DTLS
     if (ssl->options.dtls) {
@@ -13446,6 +13466,7 @@ static int DoServerKeyExchange(WOLFSSL* ssl, const byte* input,
 #endif
 
     (void)output;
+    (void)sigAlgo;
     (void)sigSz;
 
     WOLFSSL_ENTER("DoServerKeyExchange");
@@ -15167,7 +15188,7 @@ int SendClientKeyExchange(WOLFSSL* ssl)
                                                   ssl->peerNtruKey,
                                                   ssl->arrays->preMasterSz,
                                                   ssl->arrays->preMasterSecret,
-                                                  &encSz,
+                                                  (word16*)&encSz,
                                                   encSecret);
                     ntru_crypto_drbg_uninstantiate(drbg);
                     if (rc != NTRU_OK) {
