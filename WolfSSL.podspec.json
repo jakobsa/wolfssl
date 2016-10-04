@@ -1,9 +1,9 @@
 {
     "name": "WolfSSL",
     "version": "3.9.9",
-    "summary": "The CyaSSL embedded SSL library is a lightweight SSL/TLS library written in ANSI C.",
-    "description": "                       The CyaSSL embedded SSL library is a lightweight SSL/TLS library written in ANSI C and targeted for embedded, RTOS, and resource-constrained environments - primarily because of its small size, speed, and feature set.  It is commonly used in standard operating environments as well because of its royalty-free pricing and excellent cross platform support.  CyaSSL supports industry standards up to the current TLS 1.2 and DTLS 1.2 levels, is up to 20 times smaller than OpenSSL, and offers progressive ciphers such as HC-128, RABBIT, NTRU, and SHA-3.  User benchmarking and feedback reports dramatically better performance when using CyaSSL over OpenSSL.\n",
-    "homepage": "http://www.yassl.com/yaSSL/Products-cyassl.html",
+    "summary": "The WolfSSL embedded SSL library is a lightweight SSL/TLS library written in ANSI C.",
+    "description": "                       The WolfSSL embedded SSL library is a lightweight SSL/TLS library written in ANSI C and targeted for embedded, RTOS, and resource-constrained environments - primarily because of its small size, speed, and feature set.  It is commonly used in standard operating environments as well because of its royalty-free pricing and excellent cross platform support.  WolfSSL supports industry standards up to the current TLS 1.2 and DTLS 1.2 levels, is up to 20 times smaller than OpenSSL, and offers progressive ciphers such as HC-128, RABBIT, NTRU, and SHA-3.  User benchmarking and feedback reports dramatically better performance when using WolfSSL over OpenSSL.\n",
+    "homepage": "https://www.wolfssl.com/",
     "license": {
         "type": "GPL",
         "file": "COPYING"
@@ -12,7 +12,7 @@
         "wolfSSL": "info@wolfssl.com"
     },
     "source": {
-        "git": "https://github.com/wolfssl/wolfssl.git",
+        "git": "https://github.com/jakobsa/wolfssl.git",
         "tag": "v3.9.9"
     },
     "requires_arc": false,
