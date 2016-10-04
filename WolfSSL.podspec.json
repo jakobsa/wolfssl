@@ -36,7 +36,6 @@
     "public_header_files": [
         "wolfssl/*.h",
         "wolfssl/openssl/*.h",
-        "wolfssl/wolfcrypt/*.h",
-        "wolfcrypt/src/*.c"
+        "wolfssl/wolfcrypt/*.h"
     ]
 }
