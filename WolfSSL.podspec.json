@@ -37,8 +37,6 @@
         "wolfssl/*.h",
         "wolfssl/openssl/*.h",
         "wolfssl/wolfcrypt/*.h",
-        "wolfcrypt/src/*.c",
-        "wolfcrypt/src/*.i",
-        "IDE/iOS/user_settings.h"
+        "wolfcrypt/src/*.c"
     ]
 }
