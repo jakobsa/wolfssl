@@ -160,7 +160,9 @@
 
 
 #ifdef IPHONE
+        
 #define WOLFSSL_CERT_GEN
+#define HAVE_ECC
 #define USE_FAST_MATH
 #define FP_MAX_BITS 8192
 #define SIZEOF_LONG_LONG 8
@@ -168,7 +170,6 @@
 #define DEBUG_WOLFSSL
 #define SESSION_CERTS
 #define HAVE_AESGCM
-#define HAVE_ECC
 #define ATOMIC_USER
         
 //gibts einen case wo tls über datagrams (UDP) benutzt wird?

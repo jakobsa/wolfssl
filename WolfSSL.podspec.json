@@ -21,7 +21,7 @@
         "-O3"
     ],
     "xcconfig": {
-        "HEADER_SEARCH_PATHS": "\"${PODS_ROOT}/WolfSSL/IDE/iOS/\" \"${PODS_ROOT}/WolfSSL/wolfssl/wolfcrypt/\" \"${PODS_ROOT}/WolfSSL/wolfssl/openssl/\" \"${PODS_ROOT}/WolfSSL/wolfssl/\" \"${PODS_ROOT}/WolfSSL/\"",
+        "HEADER_SEARCH_PATHS": "\"${PODS_ROOT}/WolfSSL/wolfssl/wolfcrypt/\" \"${PODS_ROOT}/WolfSSL/wolfssl/openssl/\" \"${PODS_ROOT}/WolfSSL/wolfssl/\" \"${PODS_ROOT}/WolfSSL/\"",
         "GCC_PRECOMPILE_PREFIX_HEADER": "No"
     },
     "source_files": [
