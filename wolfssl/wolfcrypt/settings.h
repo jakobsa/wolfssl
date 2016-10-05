@@ -160,7 +160,7 @@
 
 
 #ifdef IPHONE
-
+#define WOLFSSL_CERT_GEN
 #define USE_FAST_MATH
 #define FP_MAX_BITS 8192
 #define SIZEOF_LONG_LONG 8
