@@ -160,7 +160,7 @@
 
 
 #ifdef IPHONE
-        
+#define WOLFSSL_KEY_GEN
 #define WOLFSSL_CERT_GEN
 #define HAVE_ECC
 #define USE_FAST_MATH
